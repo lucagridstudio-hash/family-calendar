@@ -1,0 +1,6 @@
+{
+  "name": "Famiglia Insieme",
+  "description": "Prototipo UI/UX per l'organizzazione intelligente della famiglia e gestione dei turni del papà medico ospedaliero.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
