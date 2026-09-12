@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Home, Calendar, Stethoscope, PlusCircle, Sparkles } from 'lucide-react';
 import { ActiveTab } from '../types';
 

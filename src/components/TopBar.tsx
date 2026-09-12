@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Users, HelpCircle, BellRing, HeartHandshake } from 'lucide-react';
 import { FAMILY_MEMBERS } from '../data/mockData';
 

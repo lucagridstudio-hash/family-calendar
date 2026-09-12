@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,7 +13,7 @@ import {
   Check
 } from 'lucide-react';
 import { CalendarEvent, DoctorShift, FamilyMember, EventCategory } from '../types';
-import { FAMILY_MEMBERS, DOCTOR_SHIFTS } from '../data/mockData';
+import { FAMILY_MEMBERS } from '../data/mockData';
 
 interface CalendarScreenProps {
   events: CalendarEvent[];
@@ -26,20 +26,28 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
   doctorShifts,
 }) => {
   const [viewMode, setViewMode] = useState<'daily' | 'weekly'>('weekly');
-  const [selectedDate, setSelectedDate] = useState<string>('2026-09-04');
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toLocaleDateString('en-CA'));
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<EventCategory | 'all'>('all');
 
-  // Days of the active week: Mon 31 Aug to Sun 6 Sep 2026
-  const weekDays = [
-    { date: '2026-08-31', dayNum: '31', dayName: 'Lun' },
-    { date: '2026-09-01', dayNum: '1', dayName: 'Mar' },
-    { date: '2026-09-02', dayNum: '2', dayName: 'Mer' },
-    { date: '2026-09-03', dayNum: '3', dayName: 'Gio' },
-    { date: '2026-09-04', dayNum: '4', dayName: 'Ven', isToday: true },
-    { date: '2026-09-05', dayNum: '5', dayName: 'Sab' },
-    { date: '2026-09-06', dayNum: '6', dayName: 'Dom' },
-  ];
+  // Days of the current week (Monday-Sunday)
+  const today = new Date();
+  const monday = new Date(today);
+  const day = monday.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  monday.setDate(monday.getDate() + diff);
+
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    const dateString = date.toLocaleDateString('en-CA');
+    return {
+      date: dateString,
+      dayNum: String(date.getDate()),
+      dayName: ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][date.getDay()],
+      isToday: dateString === new Date().toLocaleDateString('en-CA'),
+    };
+  });
 
   // Filter events for selected date & filters
   const eventsForSelectedDate = events.filter((ev) => {
@@ -88,7 +96,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
               Calendario Famigliare
             </h2>
             <p className="text-xs text-slate-500">
-              Settimana 36 • 31 Ago - 6 Set 2026
+              Settimana 36 â€¢ 31 Ago - 6 Set 2026
             </p>
           </div>
 
@@ -191,7 +199,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
                         ? 'bg-white/20 text-white border-white/30'
                         : shiftBadge.bg
                     }`}
-                    title={`Papà: ${shiftBadge.label}`}
+                    title={`PapÃ : ${shiftBadge.label}`}
                   >
                     {shiftBadge.short}
                   </span>
@@ -218,7 +226,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
 
         {/* Legend for quick understanding */}
         <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-[10px] text-slate-500 gap-1">
-          <span className="font-semibold text-slate-700">Turni Papà:</span>
+          <span className="font-semibold text-slate-700">Turni PapÃ :</span>
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-amber-400" /> Mattina (M)
           </span>
@@ -243,11 +251,11 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
             </div>
             <div>
               <span className="text-[10px] uppercase font-bold text-sky-800 tracking-wider">
-                Turno Ospedale Papà per questa data
+                Turno Ospedale PapÃ  per questa data
               </span>
               <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
                 <span>{activeShift.title}</span>
-                <span className="text-sky-700 font-semibold">• {activeShift.timeRange}</span>
+                <span className="text-sky-700 font-semibold">â€¢ {activeShift.timeRange}</span>
               </div>
               <span className="text-[11px] text-slate-500">{activeShift.department}</span>
             </div>
@@ -271,17 +279,50 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
               </span>
             </h3>
             <span className="text-xs text-slate-500">
-              {selectedDate === '2026-09-04' ? 'Oggi (Venerdì 4)' : selectedDate}
+              {selectedDate === '2026-09-04' ? 'Oggi (VenerdÃ¬ 4)' : selectedDate}
             </span>
           </div>
 
-          {eventsForSelectedDate.length === 0 ? (
+          {activeShift && (
+  <div className="rounded-xl p-3 border border-sky-200 bg-sky-50">
+    <div className="flex items-start gap-2.5">
+      <div className="p-2 rounded-xl bg-sky-600 text-white">
+        <Stethoscope className="w-4 h-4" />
+      </div>
+
+      <div className="flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800">
+            Turno Pipo
+          </span>
+
+          <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${getShiftBadge(activeShift.shiftType).bg}`}>
+            {getShiftBadge(activeShift.shiftType).label}
+          </span>
+        </div>
+
+        <h4 className="text-sm font-bold text-slate-900 mt-1">
+          {activeShift.title}
+        </h4>
+
+        <div className="text-xs text-slate-700 mt-1">
+          {activeShift.timeRange}
+        </div>
+
+        <div className="text-[11px] text-slate-500 mt-0.5">
+          {activeShift.department}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+{eventsForSelectedDate.length === 0 ? (
             <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
               <p className="text-xs text-slate-500 font-medium">
                 Nessun impegno familiare registrato per questa data.
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                La giornata è completamente libera!
+                La giornata Ã¨ completamente libera!
               </p>
             </div>
           ) : (
@@ -427,3 +468,5 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
     </div>
   );
 };
+
+

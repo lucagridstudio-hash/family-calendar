@@ -1,155 +1,117 @@
-import React, { useState } from 'react';
-import {
-  Camera,
-  X,
-  Upload,
-  CheckCircle2,
-  Sparkles,
-  FileText,
-  ScanLine,
-  RefreshCw,
-  Info,
-  Check
-} from 'lucide-react';
+﻿import React, { useState } from 'react';
+import { previewShifts, saveBatchShifts } from '../services/api';
 
 interface ImportShiftsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirmImport: () => void;
+  onImport?: () => void;
 }
 
-export const ImportShiftsModal: React.FC<ImportShiftsModalProps> = ({
-  isOpen,
-  onClose,
-  onConfirmImport,
-}) => {
-  const [step, setStep] = useState<'upload' | 'scanning' | 'preview'>('preview');
+export const ImportShiftsModal: React.FC<ImportShiftsModalProps> = ({ isOpen, onClose, onImport }) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [previewData, setPreviewData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const selectedFile = e.target.files[0];
+    setFile(selectedFile);
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await previewShifts(selectedFile);
+      setPreviewData(data);
+    } catch (err: any) {
+      setError(err.message || "Errore durante l'anteprima");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (previewData.length === 0) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await saveBatchShifts(previewData);
+      if (onImport) {
+        onImport();
+      }
+      onClose();
+      window.location.reload(); // Ricarica la pagina per mostrare i turni aggiornati nel calendario
+    } catch (err: any) {
+      setError(err.message || "Errore nel salvataggio");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div
-      id="import-shifts-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in"
-    >
-      <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-sky-900 via-sky-800 to-indigo-900 text-white p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-white/15 backdrop-blur-xs text-white">
-              <Camera className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold tracking-tight">
-                Importa Turni da Foto 📷
-              </h3>
-              <p className="text-[11px] text-sky-200">
-                Scansione intelligente del foglio turni cartaceo
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] flex flex-col">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold text-gray-800">Importa Turni da Immagine</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-xl font-bold">&times;</button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 space-y-4">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-start gap-2 text-xs text-amber-900">
-            <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <span>
-              <strong>Design dimostrativo:</strong> questa schermata simula come papà potrà fotografare il foglio turni dell'ospedale affisso in bacheca per aggiornare tutta la famiglia in un secondo.
-            </span>
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+            {error}
           </div>
+        )}
 
-          {/* Camera Viewfinder Mockup */}
-          <div className="relative rounded-2xl overflow-hidden border-2 border-dashed border-sky-400 bg-slate-900 p-4 text-white">
-            {/* Corner guides */}
-            <div className="absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 border-sky-400 rounded-tl" />
-            <div className="absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 border-sky-400 rounded-tr" />
-            <div className="absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 border-sky-400 rounded-bl" />
-            <div className="absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 border-sky-400 rounded-br" />
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona immagine dei turni:</label>
+          <input 
+            type="file" 
+            accept="image/*" 
+            onChange={handleFileChange}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          />
+        </div>
 
-            {/* Simulated paper document */}
-            <div className="bg-slate-50 text-slate-900 rounded-xl p-3 text-[11px] font-mono shadow-md">
-              <div className="border-b border-slate-300 pb-1.5 mb-2 flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-xs uppercase block text-slate-800">
-                    Ospedale Maggiore • Turni Settembre
-                  </span>
-                  <span className="text-[10px] text-slate-500">
-                    Reparto: DEA / Pronto Soccorso • Dott. Marco Rossi
-                  </span>
-                </div>
-                <span className="text-[9px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded">
-                  FOGLIO UFFICIALE
-                </span>
-              </div>
+        {loading && <div className="text-center py-4 text-blue-600 font-medium">Elaborazione in corso con IA...</div>}
 
-              {/* Table snippet */}
-              <div className="space-y-1 text-[10px]">
-                <div className="flex justify-between py-0.5 px-1 bg-sky-100/70 rounded text-sky-900 font-semibold">
-                  <span>04/09 (Ven): POMERIGGIO [14-20:30]</span>
-                  <span className="text-emerald-700 font-bold">✓ 99%</span>
-                </div>
-                <div className="flex justify-between py-0.5 px-1 bg-indigo-100/70 rounded text-indigo-950 font-semibold">
-                  <span>05/09 (Sab): NOTTE DEA [20-08]</span>
-                  <span className="text-emerald-700 font-bold">✓ 98%</span>
-                </div>
-                <div className="flex justify-between py-0.5 px-1 bg-slate-200/70 rounded text-slate-800">
-                  <span>06/09 (Dom): SMONTO NOTTE + RIPOSO</span>
-                  <span className="text-emerald-700 font-bold">✓ 100%</span>
-                </div>
-                <div className="flex justify-between py-0.5 px-1 bg-rose-100/70 rounded text-rose-900">
-                  <span>07/09 (Lun): REPERIBILITÀ 24H</span>
-                  <span className="text-emerald-700 font-bold">✓ 97%</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Scanning radar indicator */}
-            <div className="mt-3 flex items-center justify-between text-xs text-sky-200">
-              <div className="flex items-center gap-1.5">
-                <ScanLine className="w-4 h-4 text-sky-400 animate-pulse" />
-                <span className="font-medium">18 turni riconosciuti automaticamente</span>
-              </div>
-              <span className="font-bold text-emerald-400">Pronto</span>
-            </div>
+        {previewData.length > 0 && (
+          <div className="flex-1 overflow-y-auto mb-4 border rounded-lg p-2 max-h-60">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-gray-700">
+                <tr>
+                  <th className="p-2">Data</th>
+                  <th className="p-2">Codice</th>
+                  <th className="p-2">Orario</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewData.map((shift, idx) => (
+                  <tr key={shift.date || idx} className="border-b">
+                    <td className="p-2">{shift.date}</td>
+                    <td className="p-2 font-semibold">{shift.code}</td>
+                    <td className="p-2">{shift.start_time} - {shift.end_time}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
 
-          {/* Action buttons */}
-          <div className="space-y-2">
-            <button
-              onClick={() => {
-                onConfirmImport();
-                onClose();
-              }}
-              className="w-full py-3 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all active:scale-98"
-            >
-              <Check className="w-4 h-4" />
-              <span>Conferma e Salva nel Calendario Famiglia</span>
-            </button>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => alert('Nel prototipo finale si aprirà la fotocamera del dispositivo.')}
-                className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Camera className="w-3.5 h-3.5 text-slate-600" />
-                <span>Scatta nuova foto</span>
-              </button>
-              <button
-                onClick={() => alert('Nel prototipo finale consentirà di selezionare una foto salvata in galleria.')}
-                className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Upload className="w-3.5 h-3.5 text-slate-600" />
-                <span>Carica da galleria</span>
-              </button>
-            </div>
-          </div>
+        <div className="flex justify-end gap-3 mt-auto pt-4 border-t">
+          <button 
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50"
+          >
+            Annulla
+          </button>
+          <button 
+            onClick={handleConfirm}
+            disabled={previewData.length === 0 || loading}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            Salva Turni ({previewData.length})
+          </button>
         </div>
       </div>
     </div>
