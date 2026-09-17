@@ -1,6 +1,6 @@
-﻿import React from 'react';
+import React from 'react';
 import { Home, Calendar, Stethoscope, PlusCircle, Sparkles } from 'lucide-react';
-import { ActiveTab } from '../types';
+import type { ActiveTab } from '../types';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -11,14 +11,14 @@ interface NavigationProps {
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   onTabChange,
-  conflictCount = 1,
+  conflictCount = 0,
 }) => {
   const tabs: { id: ActiveTab; label: string; icon: React.ComponentType<{ className?: string }>; badge?: string | number }[] = [
     { id: 'home', label: 'Home', icon: Home, badge: conflictCount > 0 ? '!' : undefined },
     { id: 'calendar', label: 'Calendario', icon: Calendar },
     { id: 'add', label: 'Aggiungi', icon: PlusCircle },
-    { id: 'shifts', label: 'Turni Papà', icon: Stethoscope },
-    { id: 'ai', label: 'Assistente AI', icon: Sparkles },
+    { id: 'shifts', label: 'Turni', icon: Stethoscope },
+    { id: 'ai', label: 'Assistente', icon: Sparkles },
   ];
 
   return (

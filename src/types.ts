@@ -7,14 +7,26 @@ export interface FamilyMember {
   roleLabel: string;
   avatar: string;
   color: string;
-  bgLight: string;
-  borderLight: string;
-  textColor: string;
-  badgeBg: string;
   isDoctor?: boolean;
 }
 
-export type ShiftType = 'mattina' | 'pomeriggio' | 'notte' | 'smonto' | 'reperibilita' | 'libero';
+/**
+ * Shift types as stored in the backend (backend/app/shift_types.py).
+ * Codes from the hospital sheet legend:
+ *  MA = mattina • PO = pomeriggio • MA+PO = giornata • NO = notte
+ *  PSP = sala operatoria • GDG = pronto soccorso • FF = ferie • $ = libero
+ */
+export type ShiftType =
+  | 'mattina'
+  | 'pomeriggio'
+  | 'notte'
+  | 'giornata'
+  | 'ferie'
+  | 'psp'
+  | 'gdg'
+  | 'smonto'
+  | 'reperibilita'
+  | 'libero';
 
 export interface DoctorShift {
   id: string;
@@ -30,6 +42,26 @@ export interface DoctorShift {
 }
 
 export type EventCategory = 'medico' | 'scuola' | 'sport' | 'lavoro' | 'famiglia' | 'visita' | 'amici';
+
+export const EVENT_CATEGORIES: EventCategory[] = [
+  'famiglia',
+  'scuola',
+  'sport',
+  'medico',
+  'visita',
+  'lavoro',
+  'amici',
+];
+
+export const CATEGORY_LABELS: Record<EventCategory, string> = {
+  medico: 'Medico',
+  scuola: 'Scuola',
+  sport: 'Sport',
+  lavoro: 'Lavoro',
+  famiglia: 'Famiglia',
+  visita: 'Visita',
+  amici: 'Amici',
+};
 
 export interface CalendarEvent {
   id: string;
@@ -52,12 +84,7 @@ export interface ChatMessage {
   sender: 'user' | 'assistant';
   text: string;
   timestamp: string;
-  actionCard?: {
-    type: 'shift' | 'free_slot' | 'conflict';
-    title: string;
-    details: string;
-    date: string;
-  };
+  isError?: boolean;
 }
 
 export type ActiveTab = 'home' | 'calendar' | 'shifts' | 'add' | 'ai';

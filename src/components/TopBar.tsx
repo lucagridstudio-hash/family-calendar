@@ -1,8 +1,11 @@
-﻿import React from 'react';
+import React from 'react';
 import { Users, HelpCircle, BellRing, HeartHandshake } from 'lucide-react';
-import { FAMILY_MEMBERS } from '../data/mockData';
+import type { FamilyMember } from '../types';
+import { longDateLabel, isoWeekNumber, todayISO } from '../utils/date';
 
 interface TopBarProps {
+  members: FamilyMember[];
+  loading: boolean;
   onOpenReviewPanel: () => void;
   onSelectMember?: (memberId: string | null) => void;
   selectedMemberId?: string | null;
@@ -10,11 +13,15 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
+  members,
+  loading,
   onOpenReviewPanel,
   onSelectMember,
   selectedMemberId,
   conflictCount,
 }) => {
+  const today = todayISO();
+
   return (
     <header
       id="app-top-bar"
@@ -29,12 +36,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div>
             <h1 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-1.5 leading-none">
               Famiglia Insieme
-              <span className="inline-block px-1.5 py-0.5 text-[9px] font-semibold bg-sky-100 text-sky-700 rounded-md">
-                Prototipo
-              </span>
             </h1>
             <p className="text-[11px] text-slate-500 mt-0.5 leading-none">
-              Famiglia Rossi • Settembre 2026
+              {members.length} membri • Settimana {isoWeekNumber(today)} • {longDateLabel(today)}
             </p>
           </div>
         </div>
@@ -45,10 +49,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           {conflictCount > 0 && (
             <div
               className="flex items-center gap-1 bg-amber-50 text-amber-800 border border-amber-200 px-2 py-1 rounded-full text-[11px] font-medium"
-              title={`${conflictCount} sovrapposizione rilevata oggi`}
+              title={`${conflictCount} sovrapposizioni rilevate`}
             >
-              <BellRing className="w-3 h-3 text-amber-600 animate-bounce" />
-              <span className="font-semibold">{conflictCount} Conflitto</span>
+              <BellRing className="w-3 h-3 text-amber-600" />
+              <span className="font-semibold">{conflictCount}</span>
             </div>
           )}
 
@@ -80,7 +84,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>Tutti</span>
         </button>
 
-        {FAMILY_MEMBERS.map((member) => {
+        {members.map((member) => {
           const isSelected = selectedMemberId === member.id;
           return (
             <button
@@ -104,6 +108,10 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           );
         })}
+
+        {loading && members.length === 0 && (
+          <span className="text-[11px] text-slate-400 px-2">Caricamento famiglia…</span>
+        )}
       </div>
     </header>
   );

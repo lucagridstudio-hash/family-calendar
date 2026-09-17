@@ -43,7 +43,7 @@ export const FamilyReviewPanel: React.FC<FamilyReviewPanelProps> = ({
     {
       num: '3',
       title: 'Quali schermate sono realmente utili?',
-      desc: 'Usate più la Home giornaliera o il Calendario settimanale? La funzione "Importa turni 📷" da foto ti farebbe risparmiare tempo?',
+      desc: 'Usate più la Home giornaliera o il Calendario settimanale? L\'inserimento manuale dei turni è chiaro e rapido?',
       questionForDad: 'Per tutta la famiglia: le domande veloci dell\'assistente AI (es. "Papà lavora sabato?") vi sono comode?',
     },
     {
@@ -154,7 +154,7 @@ export const FamilyReviewPanel: React.FC<FamilyReviewPanelProps> = ({
             onClick={onClose}
             className="px-5 py-2 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
           >
-            Torna al prototipo
+            Chiudi
           </button>
         </div>
       </div>

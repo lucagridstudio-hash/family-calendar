@@ -1,7 +1,9 @@
-﻿from sqlalchemy import create_engine
+﻿import os
+
+from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = "sqlite:///./family_calendar.db"
+DATABASE_URL = os.environ.get("FAMILY_CALENDAR_DB", "sqlite:///./family_calendar.db")
 
 engine = create_engine(
     DATABASE_URL,

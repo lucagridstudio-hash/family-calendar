@@ -1,1 +1,12 @@
+/* Global styles: Tailwind v4 + small utilities used across the app. */
 @import "tailwindcss";
+
+/* Hide scrollbars while keeping scroll behavior (used by horizontal filter rows). */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

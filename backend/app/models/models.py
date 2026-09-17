@@ -1,4 +1,4 @@
-﻿from datetime import date, time
+from datetime import date, time
 
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,6 +12,10 @@ class FamilyMember(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Display fields (avatar emoji + hex color) used by the frontend.
+    avatar: Mapped[str] = mapped_column(String(16), default="👤")
+    color: Mapped[str] = mapped_column(String(16), default="#0ea5e9")
+    is_doctor: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class CalendarEvent(Base):
@@ -30,6 +34,7 @@ class CalendarEvent(Base):
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
+    recurrence_rule: Mapped[str | None] = mapped_column(String(100))
 
 
 class DoctorShift(Base):
@@ -48,5 +53,4 @@ class DoctorShift(Base):
     department: Mapped[str | None] = mapped_column(String(200))
     is_standby: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[str | None] = mapped_column(Text)
-    confidence: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(50), default="confermato")
