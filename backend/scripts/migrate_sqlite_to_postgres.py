@@ -55,6 +55,25 @@ from app.models import models  # noqa: E402,F401  (register models on Base)
 TABLES = ("family_members", "calendar_events", "doctor_shifts")
 
 
+def parse_tables(spec: str) -> tuple[str, ...]:
+    """Validate a --tables selection. Empty spec → all tables (canonical order)."""
+    if not spec.strip():
+        return TABLES
+    names = {t.strip() for t in spec.split(",") if t.strip()}
+    unknown = sorted(n for n in names if n not in TABLES)
+    if unknown:
+        print(f"ERROR: unknown table(s) {unknown}. Valid tables: {list(TABLES)}")
+        raise SystemExit(2)
+    selected = tuple(t for t in TABLES if t in names)
+    if not selected:
+        print("ERROR: empty --tables selection.")
+        raise SystemExit(2)
+    if "calendar_events" in selected and "family_members" not in selected:
+        print("NOTE: events selected without members — the destination must "
+              "already contain the referenced family_members rows (FK).")
+    return selected
+
+
 def column_kinds(table: str) -> dict[str, str]:
     """{column_name: date|time|bool|str} derived from the SQLAlchemy models."""
     out: dict[str, str] = {}
@@ -172,14 +191,15 @@ def read_all_rows(src: sqlite3.Connection, table: str, columns: list[str]) -> li
     return [dict(r) for r in src.execute(f"SELECT {cols} FROM {table} ORDER BY id")]
 
 
-def preflight_schema(src: sqlite3.Connection, dest_engine) -> list[str]:
+def preflight_schema(src: sqlite3.Connection, dest_engine,
+                     tables: tuple[str, ...] = TABLES) -> list[str]:
     """Check schema drift. Returns a list of problems (empty = OK)."""
     problems: list[str] = []
     src_tables = source_tables(src)
     insp = inspect(dest_engine)
     dest_tables = set(insp.get_table_names())
 
-    for table in TABLES:
+    for table in tables:
         if table not in src_tables:
             problems.append(f"source: table '{table}' is missing in SQLite")
             continue
@@ -199,8 +219,9 @@ def preflight_schema(src: sqlite3.Connection, dest_engine) -> list[str]:
     return problems
 
 
-def ensure_dest_schema(dest_engine, dry_run: bool) -> None:
-    missing = [t for t in TABLES if not inspect(dest_engine).has_table(t)]
+def ensure_dest_schema(dest_engine, dry_run: bool,
+                       tables: tuple[str, ...] = TABLES) -> None:
+    missing = [t for t in tables if not inspect(dest_engine).has_table(t)]
     if not missing:
         print("destination schema   : already present")
         return
@@ -225,16 +246,18 @@ def migrate_table(src: sqlite3.Connection, dest, table: str, dry_run: bool) -> d
     # The destination table may not exist yet (--dry-run does not create it):
     # in that case there is nothing to compare against (E2E-found bug).
     dest_table = Base.metadata.tables[table]
-    existing_rows: dict[int, dict] = {}
+    # ID keys are kept RAW (no int()): real databases may use string IDs —
+    # the migration must preserve them exactly as they are.
+    existing_rows: dict = {}
     if inspect(dest.engine).has_table(table):
         for row in dest.execute(dest_table.select()):
             mapping = row._mapping
-            existing_rows[int(mapping["id"])] = dict(mapping)
+            existing_rows[mapping["id"]] = dict(mapping)
 
     stats = {"total": len(rows), "inserted": 0, "skipped": 0, "conflicts": []}
 
     for row in rows:
-        rid = int(row["id"])
+        rid = row["id"]
         if rid in existing_rows:
             same = all(
                 normalize_for_compare(existing_rows[rid][c], kinds[c])
@@ -256,9 +279,9 @@ def migrate_table(src: sqlite3.Connection, dest, table: str, dry_run: bool) -> d
     return stats
 
 
-def reset_sequences(dest) -> None:
+def reset_sequences(dest, tables: tuple[str, ...] = TABLES) -> None:
     """Advance PostgreSQL id sequences after explicit-ID inserts."""
-    for table in TABLES:
+    for table in tables:
         try:
             dest.execute(text(
                 f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
@@ -273,21 +296,23 @@ def reset_sequences(dest) -> None:
 # Verification (FASE 5) — fails on ANY difference
 # ---------------------------------------------------------------------------
 
-def verify(src: sqlite3.Connection, dest_engine) -> list[str]:
+def verify(src: sqlite3.Connection, dest_engine,
+           tables: tuple[str, ...] = TABLES) -> list[str]:
     errors: list[str] = []
-    kinds_by_table = {t: column_kinds(t) for t in TABLES}
+    kinds_by_table = {t: column_kinds(t) for t in tables}
 
     with dest_engine.connect() as dest:
-        for table in TABLES:
+        for table in tables:
             kinds = kinds_by_table[table]
             columns = list(kinds.keys())
-            src_rows = {int(r["id"]): r for r in read_all_rows(src, table, columns)}
+            src_rows = {r["id"]: r for r in read_all_rows(src, table, columns)}
             # Select via the Table object so SQLAlchemy applies its type result
             # processors (raw text() would return unprocessed driver values,
-            # e.g. '18:00:00.000000' strings on SQLite).
+            # e.g. '18:00:00.000000' strings on SQLite). ID keys stay RAW
+            # (string IDs preserved exactly).
             dest_table = Base.metadata.tables[table]
             dest_rows = {
-                int(r._mapping["id"]): dict(r._mapping)
+                r._mapping["id"]: dict(r._mapping)
                 for r in dest.execute(dest_table.select())
             }
 
@@ -307,7 +332,7 @@ def verify(src: sqlite3.Connection, dest_engine) -> list[str]:
             if missing_ids:
                 errors.append(f"{table}: missing IDs {missing_ids}")
 
-            differing: list[int] = []
+            differing: list = []
             for rid, srow in src_rows.items():
                 drow = dest_rows.get(rid)
                 if drow is None:
@@ -363,6 +388,9 @@ def main() -> None:
                         help="test/preparation phase: no INSERTs")
     parser.add_argument("--yes", action="store_true",
                         help="required to perform the real migration")
+    parser.add_argument("--tables", default="",
+                        help="comma-separated subset of tables to migrate "
+                             "(default: all of " + ",".join(TABLES) + ")")
     args = parser.parse_args()
 
     # Validate the destination BEFORE touching anything (not even a snapshot).
@@ -370,6 +398,7 @@ def main() -> None:
     sqlite_path = (Path(args.sqlite).resolve() if args.sqlite
                    else BACKEND_DIR / "family_calendar.db")
     src = open_source(sqlite_path)
+    tables = parse_tables(args.tables)
     mode = "DRY-RUN (no data writes)" if args.dry_run else "MIGRATION"
     print("=" * 64)
     print(f"SQLite → PostgreSQL migration — {mode}")
@@ -381,7 +410,7 @@ def main() -> None:
     snap_path = snapshot(sqlite_path)
     print(f"snapshot creato     : {snap_path} (sqlite3.backup, sorgente intatta)")
 
-    problems = preflight_schema(src, dest_engine)
+    problems = preflight_schema(src, dest_engine, tables)
     if problems:
         print("\nSCHEMA PROBLEMS — aborting before any change:")
         for p in problems:
@@ -389,7 +418,7 @@ def main() -> None:
         raise SystemExit(4)
     print("schema check        : OK")
 
-    ensure_dest_schema(dest_engine, args.dry_run)
+    ensure_dest_schema(dest_engine, args.dry_run, tables)
 
     if not args.dry_run and not args.yes:
         print("\nRefusing to migrate without --yes (safety switch).")
@@ -398,7 +427,7 @@ def main() -> None:
 
     print()
     with dest_engine.connect() as dest:
-        for table in TABLES:
+        for table in tables:
             stats = migrate_table(src, dest, table, args.dry_run)
             label = "would insert" if args.dry_run else "inserted"
             print(
@@ -413,12 +442,12 @@ def main() -> None:
                 print("  Inspect the destination data, then decide manually.")
                 raise SystemExit(6)
         if not args.dry_run:
-            reset_sequences(dest)
+            reset_sequences(dest, tables)
 
     print("\n" + "=" * 64)
     print("VERIFICA ANTI-PERDITA (SQLite sorgente vs PostgreSQL)")
     print("=" * 64)
-    errors = verify(src, dest_engine)
+    errors = verify(src, dest_engine, tables)
 
     print()
     if errors:

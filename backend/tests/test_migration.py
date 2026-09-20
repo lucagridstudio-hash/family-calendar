@@ -23,6 +23,7 @@ from scripts.migrate_sqlite_to_postgres import (  # noqa: E402
     coerce_for_insert,
     migrate_table,
     normalize_for_compare,
+    parse_tables,
     preflight_schema,
     verify,
 )
@@ -293,3 +294,156 @@ def test_dry_run_works_when_destination_tables_missing(tmp_path, sqlite_source):
                 assert stats["skipped"] == 0
     finally:
         engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# --tables subset selection (e.g. migrate ONLY members + events)
+# ---------------------------------------------------------------------------
+
+def test_parse_tables_selection():
+    assert parse_tables("") == ("family_members", "calendar_events", "doctor_shifts")
+    assert parse_tables("family_members,calendar_events") == (
+        "family_members", "calendar_events"
+    )
+    # canonical order regardless of input order / whitespace
+    assert parse_tables(" calendar_events , family_members ") == (
+        "family_members", "calendar_events"
+    )
+    with pytest.raises(SystemExit):
+        parse_tables("nope")
+    with pytest.raises(SystemExit):
+        parse_tables(", ,")
+
+
+def test_subset_migration_excludes_doctor_shifts(sqlite_source, dest_engine):
+    """--tables family_members,calendar_events: doctor_shifts is NOT migrated
+    and NOT verified (preesistenti in PostgreSQL restano intatti)."""
+    tables = parse_tables("family_members,calendar_events")
+    assert preflight_schema(sqlite_source, dest_engine, tables) == []
+    with dest_engine.connect() as dest:
+        for table in tables:
+            stats = migrate_table(sqlite_source, dest, table, dry_run=False)
+            assert stats["conflicts"] == []
+    errors = verify(sqlite_source, dest_engine, tables)
+    assert errors == [], errors
+
+    with dest_engine.connect() as dest:
+        members = dest.execute(text("SELECT COUNT(*) FROM family_members")).scalar()
+        events = dest.execute(text("SELECT COUNT(*) FROM calendar_events")).scalar()
+        shifts = dest.execute(text("SELECT COUNT(*) FROM doctor_shifts")).scalar()
+    assert (members, events, shifts) == (3, 2, 0)  # shifts: 0, NOT migrated
+
+
+STRING_ID_SCHEMA = """
+CREATE TABLE family_members (
+    id TEXT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    avatar VARCHAR(16),
+    color VARCHAR(16),
+    is_doctor BOOLEAN
+);
+CREATE TABLE calendar_events (
+    id TEXT PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    member_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    location VARCHAR(300),
+    category VARCHAR(50) NOT NULL,
+    notes TEXT,
+    is_recurring BOOLEAN,
+    recurrence_rule VARCHAR(100)
+);
+"""
+
+
+def test_string_ids_preserved_exactly(tmp_path, monkeypatch):
+    """Regression for real databases with STRING ids: the migration must
+    preserve the exact id values (no int() casting, no renumbering).
+    The destination mirrors a String-PK schema (as the adapted models will)."""
+    import types
+
+    import scripts.migrate_sqlite_to_postgres as mig
+    from sqlalchemy import (
+        MetaData, Table, Column, String, Date, Time, Text, Boolean,
+    )
+
+    md = MetaData()
+    md_tables = {
+        "family_members": Table(
+            "family_members", md,
+            Column("id", String(50), primary_key=True),
+            Column("name", String(100), nullable=False),
+            Column("role", String(50), nullable=False),
+            Column("avatar", String(16)),
+            Column("color", String(16)),
+            Column("is_doctor", Boolean),
+        ),
+        "calendar_events": Table(
+            "calendar_events", md,
+            Column("id", String(50), primary_key=True),
+            Column("title", String(200), nullable=False),
+            Column("member_id", String(50), nullable=False),
+            Column("date", Date, nullable=False),
+            Column("start_time", Time, nullable=False),
+            Column("end_time", Time, nullable=False),
+            Column("location", String(300)),
+            Column("category", String(50), nullable=False),
+            Column("notes", Text),
+            Column("is_recurring", Boolean),
+            Column("recurrence_rule", String(100)),
+        ),
+    }
+    # Point the script's Base at the String-PK metadata for this test only.
+    monkeypatch.setattr(
+        mig, "Base",
+        types.SimpleNamespace(
+            metadata=types.SimpleNamespace(tables=md_tables)
+        ),
+    )
+
+    db_path = tmp_path / "strings.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(STRING_ID_SCHEMA)
+    conn.execute(
+        "INSERT INTO family_members VALUES ('m1','Luciano','father',NULL,NULL,1),"
+        " ('m2','Giovanna','mother',NULL,NULL,0)"
+    )
+    conn.execute(
+        "INSERT INTO calendar_events VALUES"
+        " ('e1','Visita','m1','2026-09-15','17:30','18:00','Studio','salute',"
+        "'nota',0,NULL),"
+        " ('e2','Cena','m2','2026-09-21','20:00','23:00','Casa','famiglia',"
+        "NULL,0,NULL)"
+    )
+    conn.commit()
+    engine = create_engine(f"sqlite:///{tmp_path / 'strings-dest.db'}")
+    md.create_all(bind=engine)
+    try:
+        tables = ("family_members", "calendar_events")
+        assert preflight_schema(conn, engine, tables) == []
+        with engine.connect() as dest:
+            for table in tables:
+                stats = migrate_table(conn, dest, table, dry_run=False)
+                assert stats["conflicts"] == []
+                rerun = migrate_table(conn, dest, table, dry_run=False)
+                assert (rerun["inserted"], rerun["skipped"]) == (0, 2)
+        assert verify(conn, engine, tables) == []
+
+        with engine.connect() as dest:
+            ids = [r[0] for r in dest.execute(
+                text("SELECT id FROM family_members ORDER BY id"))]
+            ev_ids = [r[0] for r in dest.execute(
+                text("SELECT id FROM calendar_events ORDER BY id"))]
+            ev = dest.execute(text(
+                "SELECT * FROM calendar_events WHERE id='e1'")).mappings().one()
+        assert ids == ["m1", "m2"]          # exact string ids preserved
+        assert ev_ids == ["e1", "e2"]
+        assert ev["member_id"] == "m1"      # string member_id preserved
+        assert str(ev["date"])[:10] == "2026-09-15"
+    finally:
+        engine.dispose()
+        conn.close()

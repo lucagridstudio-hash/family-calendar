@@ -121,7 +121,10 @@ block, so Render never spawns a second database).
    (only if empty) seeds members/shifts.
 6. **Run the migration** (below) to fill the production database with the
    real family data from the local SQLite.
-7. Deploys from `main` are automatic (`autoDeploy: true`).
+7. Deploys are automatic from the configured branch (`autoDeploy: true`):
+   set the service to `agent/family-calendar-development` first — `main` may
+   still carry the older Integer-ID schema, incompatible with the real
+   database. Switch to `main` only after its schema is aligned.
 
 The deploy never uses SQLite: on Render `DATABASE_URL` is always present.
 
@@ -156,6 +159,25 @@ DATABASE_URL="postgresql://user:pass@host:5432/db" \
   python3 -m scripts.migrate_sqlite_to_postgres --yes
 #    (equivalently, from the repo root: npm run db:migrate:run)
 ```
+
+### Migrating a subset of tables
+
+By default all three tables are migrated. To migrate ONLY family members and
+calendar events (leaving any pre-existing `doctor_shifts` rows in PostgreSQL
+untouched, and never verifying/inserting shifts):
+
+```bash
+DATABASE_URL="postgresql://user:pass@host:5432/db" \
+  python3 -m scripts.migrate_sqlite_to_postgres --dry-run \
+  --tables family_members,calendar_events
+
+DATABASE_URL="postgresql://user:pass@host:5432/db" \
+  python3 -m scripts.migrate_sqlite_to_postgres --yes \
+  --tables family_members,calendar_events
+```
+
+Also point the audit at a specific source file with
+`--sqlite /path/to/source.db` (never modified: opened read-only).
 
 The script:
 

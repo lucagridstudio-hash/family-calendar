@@ -3,7 +3,8 @@
 # Render dashboard (no `databases:` block here, so Render never creates a
 # second database).
 #
-# Deploy: Render Dashboard → New → Blueprint → select this repository.
+# Deploy: Render Dashboard → New → Blueprint → select this repository AND the
+# branch agent/family-calendar-development (Deploy an existing branch).
 # Render will ask for DATABASE_URL (sync: false): paste the **Internal
 # Database URL** shown on the database's Connect screen. The value is stored
 # as a secret by Render — never hardcode it, never commit it.
@@ -15,7 +16,7 @@ services:
     name: family-calendar
     runtime: python
     plan: free
-    branch: main
+    branch: agent/family-calendar-development
     autoDeploy: true
     # Build: backend deps (includes psycopg2) + frontend production build to dist/
     buildCommand: |
