@@ -5,6 +5,11 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+*.backup/
+*.snapshot-*.db
+*.backup-*.db
+backups/
+*.sql
 __pycache__/
 *.pyc
 *.backup

@@ -10,6 +10,19 @@ def _client():
     return TestClient(app)
 
 
+def test_health_endpoints():
+    with _client() as client:
+        res = client.get("/health")
+        assert res.status_code == 200
+        assert res.json() == {"status": "ok"}
+        # Same probe under /api (production same-origin path).
+        assert client.get("/api/health").status_code == 200
+        # DB readiness probe must succeed on the test database.
+        res = client.get("/health/db")
+        assert res.status_code == 200
+        assert res.json()["status"] == "ok"
+
+
 def test_root_and_members_seeded():
     with _client() as client:
         res = client.get("/members")
