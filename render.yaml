@@ -1,0 +1,53 @@
+# Render Blueprint: single Python Web Service serving FastAPI + the built
+# React frontend, connected to the PostgreSQL database ALREADY CREATED in the
+# Render dashboard (no `databases:` block here, so Render never creates a
+# second database).
+#
+# Deploy: Render Dashboard → New → Blueprint → select this repository.
+# Render will ask for DATABASE_URL (sync: false): paste the **Internal
+# Database URL** shown on the database's Connect screen. The value is stored
+# as a secret by Render — never hardcode it, never commit it.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: family-calendar
+    runtime: python
+    plan: free
+    branch: main
+    autoDeploy: true
+    # Build: backend deps (includes psycopg2) + frontend production build to dist/
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r backend/requirements.txt
+      npm --version && node --version
+      npm install
+      npm run build
+    # Start: FastAPI serves the API and dist/ on 0.0.0.0:$PORT (same origin).
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      # Secret, asked at deploy time: paste the Internal Database URL from the
+      # Render PostgreSQL "Connect" screen (postgresql://...@dpg-.../family_calendar).
+      - key: DATABASE_URL
+        sync: false
+      # Optional: enables Gemini-powered AI answers. Set it in the Render
+      # Dashboard (Environment → Secret), never in this file.
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional: Gemini model override (default gemini-2.5-flash).
+      - key: GEMINI_MODEL
+        sync: false
+
+# If you ever want a Blueprint-managed database INSTEAD of the existing one,
+# re-enable this block AND change DATABASE_URL back to fromDatabase:
+#
+# databases:
+#   - name: family-calendar-db
+#     databaseName: family_calendar
+#     user: family_calendar
+#     plan: free
+#     postgresMajorVersion: "16"

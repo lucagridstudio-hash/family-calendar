@@ -13,7 +13,11 @@
     "backend:start": "cd backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
     "backend:install": "pip install -r backend/requirements.txt",
     "backend:test": "cd backend && python3 -m pytest tests/ -q",
-    "seed": "cd backend && python3 -m app.seed_data"
+    "seed": "cd backend && python3 -m app.seed_data",
+    "db:audit": "cd backend && python3 -m scripts.audit_sqlite",
+    "db:migrate:dry-run": "cd backend && python3 -m scripts.migrate_sqlite_to_postgres --dry-run",
+    "db:migrate:run": "cd backend && python3 -m scripts.migrate_sqlite_to_postgres --yes",
+    "db:backup": "cd backend && python3 -m scripts.backup_postgres"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
