@@ -9,6 +9,7 @@ COPY package*.json ./
 COPY vite.config.ts ./
 COPY tsconfig.json ./
 COPY src ./src
+COPY public ./public
 COPY index.html ./
 COPY scripts ./scripts
 
@@ -55,7 +56,7 @@ USER appuser
 COPY --from=frontend-builder /app/dist ./dist
 
 # Copy installed Python dependencies from stage 2
-COPY --from=backend-builder /usr/local/lib/python3.12/site-packages ./usr/local/lib/python3.12/site-packages
+COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=backend-builder /app/app ./app
 COPY --from=backend-builder /app/scripts ./scripts
 COPY --from=backend-builder /app/tests ./tests

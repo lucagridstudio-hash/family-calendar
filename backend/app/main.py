@@ -82,6 +82,8 @@ def health_db():
 
 
 WEB_DIST = Path(__file__).resolve().parents[2] / "dist"
+if not WEB_DIST.is_dir():
+    WEB_DIST = Path(__file__).resolve().parents[1] / "dist"
 
 
 class SPAStaticFiles(StaticFiles):

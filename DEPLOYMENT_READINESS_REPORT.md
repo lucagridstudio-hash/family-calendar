@@ -10,7 +10,6 @@ NOT READY
   - Corrected: removed invalid Alembic copying lines, changed healthcheck to use Python standard library
 - **docker-compose.yml**: Coolify-compatible service definition with persistent PostgreSQL volume
   - Corrected: removed hardcoded secrets, removed PostgreSQL port exposure, used environment variables, removed unused uploads volume
-- **.env.example**: Updated with clear documentation for production environment variables
 - **docs/DEPLOY_ORACLE_COOLIFY.md**: Comprehensive deployment guide for Oracle Always Free + Coolify
   - Corrected: OCPU/RAM to 2 OCPU, 12 GB RAM; updated notes and troubleshooting
 
@@ -91,9 +90,9 @@ All existing functionality remains intact and unchanged:
 ```
 npm run lint       PASS (TypeScript compilation, no errors)
 npm run build      PASS (Frontend production build successful)
-backend tests      22 passed, 1 warning (non-critical deprecation warning in starlette testclient)
-database audit     PASS (Scripts functional: audit_sqlite.py, backup_postgres.py, migrate_sqlite_to_postgres.py)
-migration test     PASS (Scripts functional; dry-run mode verifies schema without data insertion)
+backend tests      NOT RUN LOCALLY (Python runtime unavailable on verification machine)
+database audit     NOT RUN LOCALLY
+migration test     NOT RUN LOCALLY
 ARM64 build        N/A (Requires actual ARM64 device/QEMU for full test)
                    - Base images confirmed ARM64 compatible (`node:20-alpine`, `python:3.12-slim`, `postgres:16-alpine`)
                    - No architecture-specific code in application
