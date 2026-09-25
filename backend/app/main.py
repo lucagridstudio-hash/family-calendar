@@ -1,6 +1,6 @@
 """FastAPI application: JSON API + optional static frontend hosting.
 
-Production layout (Render, single service, same origin):
+Production layout (single service, same origin):
   /            -> built React frontend (dist/), with SPA fallback
   /api/...     -> JSON API (same origin, no localhost anywhere)
   /health      -> liveness probe (fast, no database access)
@@ -20,14 +20,23 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.database import engine
+from app.database import Base, engine
 from app.routers import api
 from app.seed_data import ensure_seeded
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    ensure_seeded()
+    # In produzione lo schema viene creato, ma i dati demo/turni non vengono
+    # seminati automaticamente: il database reale viene migrato separatamente.
+    Base.metadata.create_all(bind=engine)
+
+    seed_enabled = os.getenv("SEED_ON_STARTUP", "true").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    if seed_enabled:
+        ensure_seeded()
+
     yield
 
 
@@ -48,7 +57,7 @@ app.include_router(api.router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
-# Health checks (Render probes / monitoring)
+# Health checks (container/platform probes and monitoring)
 # ---------------------------------------------------------------------------
 @app.get("/health")
 @app.get("/api/health")
@@ -73,6 +82,8 @@ def health_db():
 
 
 WEB_DIST = Path(__file__).resolve().parents[2] / "dist"
+if not WEB_DIST.is_dir():
+    WEB_DIST = Path(__file__).resolve().parents[1] / "dist"
 
 
 class SPAStaticFiles(StaticFiles):

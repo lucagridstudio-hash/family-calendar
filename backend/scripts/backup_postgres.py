@@ -4,12 +4,12 @@ Creates a plain-text SQL dump of the application tables outside the primary
 database, so family data survives even a total loss of the managed instance.
 
 Strategy:
-  - run it on a schedule (Render Cron Job, GitHub Actions cron, or any
+  - run it on a schedule (GitHub Actions cron or any
     machine with network access to the database);
   - keep the dumps OUTSIDE the git repository (family data must never be
     committed — the .gitignore already excludes ``*.backup/`` and dumps);
   - push the dump to an external store (S3/B2/Drive) or another machine;
-  - PostgreSQL itself is additionally protected by Render automated backups.
+  - PostgreSQL backups depend on the deployment platform and its configured backup policy.
 
 Usage:
   DATABASE_URL="postgresql://..." python3 -m scripts.backup_postgres \\
