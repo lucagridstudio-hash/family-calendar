@@ -14,10 +14,15 @@ import {
   CalendarDays,
   HeartPulse,
   Syringe,
+  Upload,
+  Loader,
+  CheckCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import type { DoctorShift, FamilyMember } from '../types';
 import { SHIFT_META, SHIFT_TYPE_OPTIONS, WORK_SHIFT_TYPES } from '../data/shiftMeta';
 import { longDateLabel, shortDateLabel, todayISO } from '../utils/date';
+import { importShiftsPhoto, bulkCreateShifts, ShiftImportResult } from '../services/api';
 
 interface ShiftsScreenProps {
   shifts: DoctorShift[];
@@ -52,6 +57,16 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
   const [formNotes, setFormNotes] = useState<string>('');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [previewShifts, setPreviewShifts] = useState<Array<any>>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const today = todayISO();
 
@@ -389,6 +404,350 @@ export const ShiftsScreen: React.FC<ShiftsScreenProps> = ({
           );
         })}
       </div>
+
+      {/* Import Photo Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="relative w-full max-w-2xl mx-4 sm:mx-0 sm:rounded-lg">
+            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              {/* Step 1: Upload */}
+              {currentStep === 1 && (
+                <div className="p-6">
+                  <h3 className="text-lg font-bold mb-4">Importa foto turni</h3>
+                  <p className="text-sm text-slate-600 mb-6">
+                    Scatta o carica una foto del foglio dei turni del mese selezionato.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Mese
+                      </label>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                          <option key={m} value={m}>
+                            {new Date(0, m - 1).toLocaleString('it-IT', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Anno
+                      </label>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                      >
+                        {[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Foto
+                      </label>
+                      <div className="flex flex-col">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] ?? null;
+                            setSelectedFile(file);
+                            if (file) {
+                              // Validate file size (10 MB limit)
+                              if (file.size > 10 * 1024 * 1024) {
+                                setImportError('Il file è troppo grande (max 10 MB)');
+                                setSelectedFile(null);
+                              } else {
+                                setImportError(null);
+                              }
+                            }
+                          }}
+                          className="mb-2 block w-full text-sm text-slate-500"
+                        >
+                          Scegli un file
+                        </input>
+                        {selectedFile && (
+                          <p className="text-xs text-slate-500">
+                            {selectedFile.name} ({Math.round(selectedFile.size / 1024)} KB)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {importError && (
+                      <p className="text-xs text-red-600">{importError}</p>
+                    )}
+                  </div>
+
+                  <div className="mt-6 flex justify-end space-x-3">
+                    <button
+                      onClick={() => setShowImportModal(false)}
+                      className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!selectedFile) {
+                          setImportError('Seleziona una foto');
+                          return;
+                        }
+                        setIsAnalyzing(true);
+                        setImportError(null);
+                        try {
+                          const result = await importShiftsPhoto(selectedFile, selectedMonth, selectedYear);
+                          setIsAnalyzing(false);
+                          // Convert the result to our preview format
+                          const shiftsWithIndex = result.shifts.map((shift, index) => ({
+                            ...shift,
+                            originalIndex: index,
+                          }));
+                          setPreviewShifts(shiftsWithIndex);
+                          setCurrentStep(2);
+                        } catch (err: any) {
+                          setIsAnalyzing(false);
+                          setImportError(
+                            err?.response?.data?.detail ||
+                              err?.message ||
+                              'Errore durante l\'analisi della foto'
+                          );
+                        }
+                      }}
+                      disabled={isAnalyzing || !selectedFile}
+                      className="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                    >
+                      {isAnalyzing ? 'Analisi in corso...' : 'Analizza foto'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Analyzing (spinner) */}
+              {currentStep === 2 && (
+                <div className="p-6 text-center">
+                  <div className="mb-6">
+                    <Loader className="h-8 w-8 text-sky-500 mx-auto mb-4" />
+                  </div>
+                  <h3 className="text-lg font-bold mb-4">Analisi del foglio...</h3>
+                  <p className="text-sm text-slate-600">
+                    Stiamo elaborando la foto con l\'intelligenza artificiale. Questo potrebbe richiedere qualche secondo.
+                  </p>
+                </div>
+              )}
+
+              {/* Step 3: Preview */}
+              {currentStep === 3 && (
+                <div className="p-6">
+                  <h3 className="text-lg font-bold mb-4">Anteprima turni estratti</h3>
+                  <p className="text-sm text-slate-600 mb-4">
+                    Controlla i turni estratti e correggi eventuali errori prima di salvare.
+                  </p>
+
+                  {importError && (
+                    <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-600">
+                      {importError}
+                    </div>
+                  )}
+
+                  {importSuccess && (
+                    <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-600">
+                      {importSuccess}
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead>
+                        <tr className="bg-slate-50">
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Data
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Codice letto
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Tipo turno
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Confidenza
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                            Stato
+                          </th>
+                          <th scope="col" className="relative px-6 py-3">
+                            <span className="sr-only">Modifica</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {previewShifts.length === 0 ? (
+                          <tr>
+                            <td colspan="6" className="px-6 py-4 text-center text-sm text-slate-500">
+                              Nessun turno estratto dalla foto.
+                            </td>
+                          </tr>
+                        ) : (
+                          previewShifts.map((shift, index) => {
+                            const isUnknown = shift.shift_type === 'sconosciuto';
+                            const needsReview = shift.needs_review || isUnknown;
+                            const confidencePercent = Math.round(shift.confidence);
+                            const confidenceClass =
+                              confidencePercent >= 80
+                                ? 'text-green-600'
+                                : confidencePercent >= 60
+                                ? 'text-yellow-600'
+                                : 'text-red-600';
+
+                            return (
+                              <tr key={index} className="hover:bg-slate-50">
+                                <td className="px-6 py-4 text-sm text-slate-900">
+                                  {shift.day.toString().padStart(2, '0')}/{selectedMonth
+                                    .toString()
+                                    .padStart(2, '0')}/{selectedYear}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-slate-900">
+                                  {shift.raw_code ?? '(illegibile)'}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-slate-900">
+                                  <select
+                                    value={shift.shift_type}
+                                    onChange={(e) => {
+                                      const newShifts = [...previewShifts];
+                                      newShifts[index] = {
+                                        ...newShifts[index],
+                                        shift_type: e.target.value,
+                                        needs_review: false,
+                                      };
+                                      setPreviewShifts(newShifts);
+                                    }}
+                                    className="block w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                  >
+                                    {[['mattina', 'Mattina'], ['pomeriggio', 'Pomeriggio'], ['giornata', 'Giornata'], ['notte', 'Notte'], ['psp', 'PSP'], ['gdg', 'GDG'], ['ferie', 'Ferie'], ['libero', 'Libero'], ['sconosciuto', 'Sconosciuto']].map(
+                                      ([value, label]) => (
+                                        <option key={value} value={value}>
+                                          {label}
+                                        </option>
+                                      )
+                                    )}
+                                  </select>
+                                </td>
+                                <td className="px-6 py-4 text-sm">
+                                  <span className={`font-medium ${confidenceClass}`}>
+                                    {confidencePercent}%
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-sm flex items-center">
+                                  {needsReview ? (
+                                    <>
+                                      <AlertTriangle className="h-4 w-4 text-yellow-500 mr-2" />
+                                      <span className="text-yellow-600 font-medium">Da verificare</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-green-600 font-medium">OK</span>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 text-right text-sm">
+                                  <button
+                                    onClick={() => {
+                                      const newShifts = previewShifts.filter(
+                                        (_, i) => i !== index
+                                      );
+                                      setPreviewShifts(newShifts);
+                                    }}
+                                    className="text-slate-500 hover:text-slate-600"
+                                  >
+                                    Eliminare
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-6 flex justify-end space-x-3">
+                    <button
+                      onClick={() => setCurrentStep(1)}
+                      className="px-4 py-2 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors"
+                    >
+                      Analizza di nuovo
+                    </button>
+                    <button
+                      onClick={async () => {
+                        // Check if there are any shifts that need review
+                        const hasNeedsReview = previewShifts.some(
+                          (s) => s.needs_review || s.shift_type === 'sconosciuto'
+                        );
+                        if (hasNeedsReview) {
+                          setImportError(
+                            'Non è possibile salvare finché ci sono turni da verificare.'
+                          );
+                          return;
+                        }
+                        setImportSuccess('Salvataggio turni...');
+                        try {
+                          // Prepare the payload for bulk creation
+                          const shiftsPayload = previewShifts.map((shift) => ({
+                            date: `${selectedYear}-${selectedMonth
+                              .toString()
+                              .padStart(2, '0')}-${shift.day
+                              .toString()
+                              .padStart(2, '0')}`,
+                            shiftType: shift.shift_type,
+                            // We don't have startTime and endTime from the photo, but we can get them from the shift type
+                            // We'll leave them as null and let the backend apply defaults based on shift type.
+                            startTime: null,
+                            endTime: null,
+                            notes: null,
+                          }));
+                          const result = await bulkCreateShifts({
+                            memberId: 1, // Assuming the doctor is memberId 1
+                            replaceDates: true,
+                            shifts: shiftsPayload,
+                          });
+                          setImportSuccess(
+                            `${result.created} turni importati correttamente`
+                          );
+                          // Close the modal after a short delay
+                          setTimeout(() => {
+                            setShowImportModal(false);
+                          }, 1500);
+                        } catch (err: any) {
+                          setImportSuccess(null);
+                          setImportError(
+                            err?.response?.data?.detail ||
+                              err?.message ||
+                              'Errore durante il salvataggio dei turni'
+                          );
+                        }
+                      }}
+                      disabled={previewShifts.length === 0}
+                      className="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 transition-colors"
+                    >
+                      Conferma e salva
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

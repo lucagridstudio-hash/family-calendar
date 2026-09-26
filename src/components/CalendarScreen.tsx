@@ -15,7 +15,7 @@ import {
 import type { CalendarEvent, DoctorShift, EventCategory, FamilyMember } from '../types';
 import { EVENT_CATEGORIES, CATEGORY_LABELS } from '../types';
 import { SHIFT_META } from '../data/shiftMeta';
-import { todayISO, weekDaysFrom, weekLabel, addDays, shortDateLabel } from '../utils/date';
+import { todayISO, weekDaysFrom, weekLabel, addDays, shortDateLabel, addMonths, startOfWeek, startOfMonth } from '../utils/date';
 
 interface CalendarScreenProps {
   events: CalendarEvent[];
@@ -49,24 +49,263 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [view, setView] = useState<'day' | 'week' | 'month'>('week');
 
-  const weekDays = useMemo(() => weekDaysFrom(anchorDate), [anchorDate]);
+  const WeekView = () => {
+    const weekDays = useMemo(() => weekDaysFrom(anchorDate), [anchorDate]);
+    const filteredEvents = useMemo(
+      () =>
+        events.filter((ev) => {
+          if (selectedMemberId && ev.memberId !== selectedMemberId) return false;
+          if (categoryFilter !== 'all' && ev.category !== categoryFilter) return false;
+          return true;
+        }),
+      [events, selectedMemberId, categoryFilter],
+    );
+    const eventsForSelectedDate = filteredEvents.filter((ev) => ev.date === selectedDate);
+    const shiftsForSelectedDate = doctorShifts.filter((s) => s.date === selectedDate);
+    const activeShift = shiftsForSelectedDate[0];
+    const findMember = (id: string) => members.find((m) => m.id === id);
 
-  const filteredEvents = useMemo(
-    () =>
-      events.filter((ev) => {
-        if (selectedMemberId && ev.memberId !== selectedMemberId) return false;
-        if (categoryFilter !== 'all' && ev.category !== categoryFilter) return false;
-        return true;
-      }),
-    [events, selectedMemberId, categoryFilter],
-  );
+    return (
+      <>
+        {/* 2. WEEK STRIP */}
+        <div className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-xs">
+          <div className="grid grid-cols-7 gap-1">
+            {weekDays.map((day) => {
+              const isSelected = selectedDate === day.date;
+              const shift = doctorShifts.find((s) => s.date === day.date);
+              const shiftMeta = shift ? SHIFT_META[shift.shiftType] : null;
+              const dayEventsCount = filteredEvents.filter((e) => e.date === day.date).length;
 
-  const eventsForSelectedDate = filteredEvents.filter((ev) => ev.date === selectedDate);
-  const shiftsForSelectedDate = doctorShifts.filter((s) => s.date === selectedDate);
-  const activeShift = shiftsForSelectedDate[0];
+              return (
+                <button
+                  key={day.date}
+                  onClick={() => setSelectedDate(day.date)}
+                  className={`flex flex-col items-center py-2 px-1 rounded-xl transition-all relative ${
+                    isSelected
+                      ? 'bg-sky-500 text-white shadow-sm ring-2 ring-sky-300'
+                      : day.isToday
+                      ? 'bg-sky-50 text-sky-900 border border-sky-200'
+                      : 'hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <span className={`text-[11px] font-semibold ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>
+                    {day.dayName}
+                  </span>
+                  <span className={`text-sm font-extrabold my-0.5 ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                    {day.dayNum}
+                  </span>
 
-  const findMember = (id: string) => members.find((m) => m.id === id);
+                  {shiftMeta ? (
+                    <span
+                      className={`text-[9px] font-bold px-1 py-0.5 rounded border truncate max-w-full ${
+                        isSelected
+                          ? 'bg-white/20 text-white border-white/30'
+                          : shiftMeta.badge
+                      }`}
+                      title={`Turno: ${shiftMeta.label}`}
+                    >
+                      {shiftMeta.short}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-transparent">-</span>
+                  )}
+
+                  {dayEventsCount > 0 && (
+                    <div className="flex items-center gap-0.5 mt-1">
+                      <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-sky-600'}`} />
+                      {dayEventsCount > 1 && (
+                        <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-indigo-500'}`} />
+                      )}
+                      {dayEventsCount > 2 && (
+                        <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-amber-500'}`} />
+                      )}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <Legend />
+        </div>
+
+        {/* 3. SELECTED DAY SHIFT BANNER */}
+        {activeShift && (
+          <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 rounded-xl bg-sky-600 text-white shadow-xs shrink-0">
+                <Stethoscope className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold text-sky-800 tracking-wider">
+                  Turno ospedaliero in questa data
+                </span>
+                <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                  <span>{activeShift.title}</span>
+                  <span className="text-sky-700 font-semibold">• {activeShift.timeRange}</span>
+                </div>
+                <span className="text-[11px] text-slate-500">{activeShift.department}</span>
+              </div>
+            </div>
+
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border shrink-0 ${SHIFT_META[activeShift.shiftType]?.badge ?? ''}`}>
+              {SHIFT_META[activeShift.shiftType]?.short}
+            </span>
+          </div>
+        )}
+
+        {/* 4. DAY DETAIL */}
+        <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+              <CalendarCheck className="w-4 h-4 text-sky-600" />
+              <span>
+                Impegni del giorno ({eventsForSelectedDate.length})
+              </span>
+            </h3>
+            <span className="text-xs text-slate-500 whitespace-nowrap">
+              {selectedDate === todayISO() ? `Oggi • ${shortDateLabel(selectedDate)}` : shortDateLabel(selectedDate)}
+            </span>
+          </div>
+
+          {eventsForSelectedDate.length === 0 ? (
+            <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <p className="text-xs text-slate-500 font-medium">
+                Nessun impegno familiare registrato per questa data.
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                La giornata è completamente libera!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {eventsForSelectedDate.map((event) => {
+                const member = findMember(event.memberId);
+                return (
+                  <div
+                    key={event.id}
+                    className={`rounded-xl p-3 border transition-all ${
+                      event.isConflict
+                        ? 'bg-amber-50/70 border-amber-300 shadow-xs'
+                        : 'bg-slate-50/70 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <span className="text-xl leading-none">{member?.avatar ?? '👤'}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className="text-[11px] font-bold px-1.5 py-0.5 rounded-md"
+                              style={{
+                                backgroundColor: member ? `${member.color}15` : '#e2e8f0',
+                                color: member?.color || '#334155',
+                              }}
+                            >
+                              {member?.name ?? 'Famiglia'}
+                            </span>
+                            {event.isRecurring && (
+                              <span className="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-1 py-0.5 rounded flex items-center gap-1">
+                                <RotateCcw className="w-2.5 h-2.5" />
+                                {event.recurrenceRule || 'Ricorrente'}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
+                              {CATEGORY_LABELS[event.category] ?? event.category}
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-bold text-slate-900 mt-1">
+                            {event.title}
+                          </h4>
+
+                          <div className="flex items-center gap-3 mt-1 text-xs text-slate-600 flex-wrap">
+                            <span className="flex items-center gap-1 font-semibold text-slate-800">
+                              <Clock className="w-3.5 h-3.5 text-slate-400" />
+                              {event.startTime} - {event.endTime}
+                            </span>
+                            {event.location && (
+                              <span className="flex items-center gap-1 text-slate-500">
+                                <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                <span>{event.location}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {event.isConflict && (
+                            <div className="mt-2 text-xs font-semibold text-amber-900 bg-amber-100/90 rounded-lg p-2 flex items-start gap-1.5 border border-amber-200">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                              <span>{event.conflictDescription}</span>
+                            </div>
+                          )}
+
+                          {event.notes && (
+                            <p className="text-[11px] text-slate-500 mt-1 italic">
+                              "{event.notes}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => {
+                            setEditingEvent(event);
+                            setActionError(null);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-sky-700 hover:bg-sky-50 transition-colors"
+                          title="Modifica impegno"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => void handleDelete(event.id)}
+                          disabled={deleting}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50"
+                          title="Elimina impegno"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* EDIT MODAL */}
+        {editingEvent && (
+          <EditEventModal
+            event={editingEvent}
+            members={members}
+            onClose={() => setEditingEvent(null)}
+            onSave={async (changes) => {
+              setActionError(null);
+              try {
+                await onUpdateEvent(editingEvent.id, changes);
+                setEditingEvent(null);
+              } catch (error) {
+                setActionError(error instanceof Error ? error.message : 'Errore salvataggio');
+              }
+            }}
+            error={actionError}
+          />
+        )}
+      </>
+    );
+  };
+
+  const DayView = () => {
+    return <div>DayView placeholder</div>;
+  };
+
+  const MonthView = () => {
+    return <div>MonthView placeholder</div>;
+  };
 
   const handleDelete = async (id: string) => {
     setDeleting(true);
@@ -86,6 +325,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
       {/* 1. Header & navigation */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs">
         <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        {/* Navigation buttons based on view */}
+        {view === 'day' && (
+          <button
+            onClick={() => setSelectedDate(addDays(selectedDate, -1))}
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+            title="Giorno precedente"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
+        {view === 'week' && (
           <button
             onClick={() => {
               setAnchorDate(addDays(anchorDate, -7));
@@ -96,39 +347,79 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-
-          <div className="text-center">
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              {weekLabel(anchorDate)}
-            </h2>
-            <p className="text-[11px] text-slate-500">
-              Calendario Famigliare
-            </p>
-          </div>
-
+        )}
+        {view === 'month' && (
           <button
             onClick={() => {
-              setAnchorDate(addDays(anchorDate, 7));
-              setSelectedDate(addDays(selectedDate, 7));
+              setAnchorDate(addMonths(anchorDate, -1));
+              setSelectedDate(addMonths(selectedDate, -1));
             }}
             className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-            title="Settimana successiva"
+            title="Mese precedente"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
-        </div>
+        )}
+      </div>
 
-        <div className="mt-3 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
           <button
-            onClick={() => {
-              setAnchorDate(todayISO());
-              setSelectedDate(todayISO());
-            }}
-            className="text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-3 py-1 rounded-full transition-colors"
+            onClick={() => setView('day')}
+            className={`px-3 py-1 rounded-lg transition-colors ${
+              view === 'day'
+                ? 'bg-sky-600 text-white'
+                : 'bg-white text-slate-700 hover:bg-slate-100'
+            }`}
           >
-            Torna a oggi
+            Giorno
+          </button>
+          <span className="text-slate-400">|</span>
+          <button
+            onClick={() => setView('week')}
+            className={`px-3 py-1 rounded-lg transition-colors ${
+              view === 'week'
+                ? 'bg-sky-600 text-white'
+                : 'bg-white text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            Settimana
+          </button>
+          <span className="text-slate-400">|</span>
+          <button
+            onClick={() => setView('month')}
+            className={`px-3 py-1 rounded-lg transition-colors ${
+              view === 'month'
+                ? 'bg-sky-600 text-white'
+                : 'bg-white text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            Mese
           </button>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {/* Today button */}
+        <button
+          onClick={() => {
+            setAnchorDate(todayISO());
+            setSelectedDate(todayISO());
+            if (view === 'week') {
+              setAnchorDate(startOfWeek(todayISO()));
+              setSelectedDate(todayISO());
+            } else if (view === 'month') {
+              setAnchorDate(startOfMonth(todayISO()));
+              setSelectedDate(todayISO());
+            }
+          }}
+          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+          title="Oggi"
+        >
+          Oggi
+        </button>
+      </div>
+    </div>
 
         {/* Family Member Filter Row */}
         <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -193,213 +484,10 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
         </div>
       </div>
 
-      {/* 2. WEEK STRIP */}
-      <div className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-xs">
-        <div className="grid grid-cols-7 gap-1">
-          {weekDays.map((day) => {
-            const isSelected = selectedDate === day.date;
-            const shift = doctorShifts.find((s) => s.date === day.date);
-            const shiftMeta = shift ? SHIFT_META[shift.shiftType] : null;
-            const dayEventsCount = filteredEvents.filter((e) => e.date === day.date).length;
-
-            return (
-              <button
-                key={day.date}
-                onClick={() => setSelectedDate(day.date)}
-                className={`flex flex-col items-center py-2 px-1 rounded-xl transition-all relative ${
-                  isSelected
-                    ? 'bg-sky-500 text-white shadow-sm ring-2 ring-sky-300'
-                    : day.isToday
-                    ? 'bg-sky-50 text-sky-900 border border-sky-200'
-                    : 'hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <span className={`text-[11px] font-semibold ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>
-                  {day.dayName}
-                </span>
-                <span className={`text-sm font-extrabold my-0.5 ${isSelected ? 'text-white' : 'text-slate-900'}`}>
-                  {day.dayNum}
-                </span>
-
-                {shiftMeta ? (
-                  <span
-                    className={`text-[9px] font-bold px-1 py-0.5 rounded border truncate max-w-full ${
-                      isSelected
-                        ? 'bg-white/20 text-white border-white/30'
-                        : shiftMeta.badge
-                    }`}
-                    title={`Turno: ${shiftMeta.label}`}
-                  >
-                    {shiftMeta.short}
-                  </span>
-                ) : (
-                  <span className="text-[9px] text-transparent">-</span>
-                )}
-
-                {dayEventsCount > 0 && (
-                  <div className="flex items-center gap-0.5 mt-1">
-                    <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-sky-600'}`} />
-                    {dayEventsCount > 1 && (
-                      <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-indigo-500'}`} />
-                    )}
-                    {dayEventsCount > 2 && (
-                      <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-amber-500'}`} />
-                    )}
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <Legend />
-      </div>
-
-      {/* 3. SELECTED DAY SHIFT BANNER */}
-      {activeShift && (
-        <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="p-2 rounded-xl bg-sky-600 text-white shadow-xs shrink-0">
-              <Stethoscope className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[10px] uppercase font-bold text-sky-800 tracking-wider">
-                Turno ospedaliero in questa data
-              </span>
-              <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                <span>{activeShift.title}</span>
-                <span className="text-sky-700 font-semibold">• {activeShift.timeRange}</span>
-              </div>
-              <span className="text-[11px] text-slate-500">{activeShift.department}</span>
-            </div>
-          </div>
-
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border shrink-0 ${SHIFT_META[activeShift.shiftType]?.badge ?? ''}`}>
-            {SHIFT_META[activeShift.shiftType]?.short}
-          </span>
-        </div>
-      )}
-
-      {/* 4. DAY DETAIL */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-            <CalendarCheck className="w-4 h-4 text-sky-600" />
-            <span>
-              Impegni del giorno ({eventsForSelectedDate.length})
-            </span>
-          </h3>
-          <span className="text-xs text-slate-500 whitespace-nowrap">
-            {selectedDate === todayISO() ? `Oggi • ${shortDateLabel(selectedDate)}` : shortDateLabel(selectedDate)}
-          </span>
-        </div>
-
-        {eventsForSelectedDate.length === 0 ? (
-          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-            <p className="text-xs text-slate-500 font-medium">
-              Nessun impegno familiare registrato per questa data.
-            </p>
-            <p className="text-[11px] text-slate-400 mt-1">
-              La giornata è completamente libera!
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2.5">
-            {eventsForSelectedDate.map((event) => {
-              const member = findMember(event.memberId);
-              return (
-                <div
-                  key={event.id}
-                  className={`rounded-xl p-3 border transition-all ${
-                    event.isConflict
-                      ? 'bg-amber-50/70 border-amber-300 shadow-xs'
-                      : 'bg-slate-50/70 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <span className="text-xl leading-none">{member?.avatar ?? '👤'}</span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span
-                            className="text-[11px] font-bold px-1.5 py-0.5 rounded-md"
-                            style={{
-                              backgroundColor: member ? `${member.color}15` : '#e2e8f0',
-                              color: member?.color || '#334155',
-                            }}
-                          >
-                            {member?.name ?? 'Famiglia'}
-                          </span>
-                          {event.isRecurring && (
-                            <span className="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-1 py-0.5 rounded flex items-center gap-1">
-                              <RotateCcw className="w-2.5 h-2.5" />
-                              {event.recurrenceRule || 'Ricorrente'}
-                            </span>
-                          )}
-                          <span className="text-[10px] font-semibold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
-                            {CATEGORY_LABELS[event.category] ?? event.category}
-                          </span>
-                        </div>
-
-                        <h4 className="text-sm font-bold text-slate-900 mt-1">
-                          {event.title}
-                        </h4>
-
-                        <div className="flex items-center gap-3 mt-1 text-xs text-slate-600 flex-wrap">
-                          <span className="flex items-center gap-1 font-semibold text-slate-800">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            {event.startTime} - {event.endTime}
-                          </span>
-                          {event.location && (
-                            <span className="flex items-center gap-1 text-slate-500">
-                              <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{event.location}</span>
-                            </span>
-                          )}
-                        </div>
-
-                        {event.isConflict && (
-                          <div className="mt-2 text-xs font-semibold text-amber-900 bg-amber-100/90 rounded-lg p-2 flex items-start gap-1.5 border border-amber-200">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
-                            <span>{event.conflictDescription}</span>
-                          </div>
-                        )}
-
-                        {event.notes && (
-                          <p className="text-[11px] text-slate-500 mt-1 italic">
-                            "{event.notes}"
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => {
-                          setEditingEvent(event);
-                          setActionError(null);
-                        }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-sky-700 hover:bg-sky-50 transition-colors"
-                        title="Modifica impegno"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => void handleDelete(event.id)}
-                        disabled={deleting}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50"
-                        title="Elimina impegno"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* View Container */}
+      {view === 'day' && <DayView />}
+      {view === 'week' && <WeekView />}
+      {view === 'month' && <MonthView />}
 
       {/* EDIT MODAL */}
       {editingEvent && (

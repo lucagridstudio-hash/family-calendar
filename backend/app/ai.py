@@ -14,8 +14,10 @@ from sqlalchemy.orm import Session
 
 try:  # Optional dependency: only needed when GEMINI_API_KEY is configured.
     from google import genai as google_genai
+    from google.genai import types
 except ImportError:  # pragma: no cover
     google_genai = None
+    types = None
 
 from app.models.models import CalendarEvent, DoctorShift, FamilyMember
 
@@ -88,6 +90,89 @@ def build_context(db: Session, today: date, window_days: int = 60) -> dict:
     ]
 
     return {"oggi": today.isoformat(), "membri": members, "turni": shifts, "eventi": events}
+
+
+def process_shift_photo(image_bytes: bytes, mime_type: str, month: int, year: int) -> dict:
+    """
+    Process a shift photo using Gemini and return the structured result.
+    """
+    if not google_genai:
+        raise RuntimeError("Gemini SDK not available")
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not configured")
+
+    client = google_genai.Client(api_key=api_key)
+
+    # Limit image size to 10 MB
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise ValueError("Image too large (max 10 MB)")
+
+    # Prompt for Gemini
+    prompt = f"""
+    Sei un assistente che legge il foglio dei turni del medico da una foto.
+    Il foglio mostra il mese {month} dell'anno {year}.
+    Estrai tutti i turni per ogni giorno del mese.
+    Per ogni giorno, restituisci:
+    - giorno: numero del giorno (1-31)
+    - shift_type: uno dei seguenti: mattina, pomeriggio, giornata, notte, psp, gdg, ferie, libero, sconosciuto
+    - raw_code: il testo letto dalla foto (se presente) o null se illeggibile
+    - confidence: un valore tra 0 e 100 che indica la confidenza nell'estrazione
+    - needs_review: true se il turno è sconosciuto o se la confidenza è bassa (sotto 80), altrimenti false
+
+    Restituisci un oggetto JSON con la seguente struttura:
+    {{
+      "shifts": [
+        {{
+          "day": 1,
+          "shift_type": "mattina",
+          "raw_code": "MA",
+          "confidence": 95,
+          "needs_review": false
+        }}
+      ],
+      "warnings": ["eventuali avvisi"],
+      "detected_month": {month},
+      "detected_year": {year}
+    }}
+
+    Se il mese o l'anno rilevati dalla foto sono diversi da quelli forniti, includili nei campi detected_month e detected_year e aggiungi un avviso.
+    Non inventare turni: se un giorno non è presente nel foglio, non includerlo.
+    Se una cella è illeggibile, imposta raw_code su null e needs_review su true.
+    Se il codice non è riconosciuto, imposta shift_type su "sconosciuto" e raw_code sul testo letto.
+    """
+
+    # We'll try to use structured output if available.
+    # We'll define a Pydantic-like schema for the response.
+    # However, the google.genai SDK might not support Pydantic directly.
+    # We'll fallback to parsing the JSON text.
+
+    # For now, we'll just get the text and parse it.
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=[
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"data": image_bytes, "mime_type": mime_type}}
+                ]
+            }
+        ],
+        # We can try to set the response mime type to JSON, but let's see.
+        config={"response_mime_type": "application/json"},
+    )
+
+    # The response should be JSON text.
+    import json
+    try:
+        result = json.loads(response.text)
+    except json.JSONDecodeError:
+        # If not JSON, we try to extract JSON from the text.
+        # For simplicity, we'll raise an error.
+        raise ValueError("Invalid response from Gemini")
+
+    return result
 
 
 def _iso_to_human(iso: str) -> str:

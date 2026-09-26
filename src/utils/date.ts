@@ -31,6 +31,18 @@ export function addDays(iso: string, days: number): string {
   return toISODate(date);
 }
 
+export function addMonths(iso: string, months: number): string {
+  const date = fromISODate(iso);
+  date.setMonth(date.getMonth() + months);
+  return toISODate(date);
+}
+
+export function startOfMonth(iso: string): string {
+  const date = fromISODate(iso);
+  date.setDate(1);
+  return toISODate(date);
+}
+
 /** Monday of the week containing the given ISO date. */
 export function startOfWeek(iso: string): string {
   const date = fromISODate(iso);

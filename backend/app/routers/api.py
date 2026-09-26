@@ -1,12 +1,12 @@
 """JSON CRUD API for members, events and shifts + AI assistant endpoint."""
 from datetime import date, datetime, time
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.ai import ask_assistant
+from app.ai import ask_assistant, process_shift_photo
 from app.database import get_db
 from app.models.models import CalendarEvent, DoctorShift, FamilyMember
 from app.shift_types import SHIFT_TYPES
@@ -96,7 +96,25 @@ class EventUpdate(BaseModel):
     recurrenceRule: str | None = None
 
 
-def _parse_date(value: str) -> date:
+# ---------------------------------------------------------------------------
+    # Shift Import Models
+    # ---------------------------------------------------------------------------
+
+    class ExtractedShift(BaseModel):
+        day: int
+        shift_type: str
+        raw_code: str | None = None
+        confidence: float = 0
+        needs_review: bool = False
+
+    class ShiftImportResult(BaseModel):
+        shifts: list[ExtractedShift]
+        warnings: list[str] = []
+        detected_month: int | None = None
+        detected_year: int | None = None
+
+
+    def _parse_date(value: str) -> date:
     return datetime.strptime(value.strip(), "%Y-%m-%d").date()
 
 
@@ -236,6 +254,138 @@ def delete_shift(shift_id: int, db: Session = Depends(get_db)):
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Shift Import Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/shifts/import-photo")
+async def import_shifts_photo(
+    file: UploadFile = File(...),
+    month: int = Form(...),
+    year: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Import shifts from a photo using Gemini.
+    Returns a preview of the extracted shifts, without saving to the database.
+    """
+    # Validate month and year
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Invalid month")
+    if year < 2020 or year > 2100:
+        raise HTTPException(status_code=400, detail="Invalid year")
+
+    # Read the image file
+    image_bytes = await file.read()
+    mime_type = file.content_type or "application/octet-stream"
+
+    # Process the photo with Gemini
+    try:
+        result = process_shift_photo(image_bytes, mime_type, month, year)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    # Validate the result with our Pydantic model
+    try:
+        validated = ShiftImportResult(**result)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid response from Gemini: {exc}")
+
+    # Return the validated result
+    return jsonable_encoder(validated)
+
+
+class BulkShiftInput(BaseModel):
+    memberId: int = 1
+    replaceDates: bool = False
+    shifts: list[dict]
+
+
+@router.post("/shifts/bulk")
+async def bulk_create_shifts(payload: BulkShiftInput, db: Session = Depends(get_db)):
+    """
+    Create multiple shifts in a single transaction.
+    If replaceDates is True, existing shifts for the same member and date are updated.
+    """
+    # Validate member exists
+    member = db.get(FamilyMember, payload.memberId)
+    if not member:
+        raise HTTPException(status_code=400, detail="Member not found")
+
+    # We'll validate each shift and collect them to create/update
+    shifts_to_upsert = []
+    for shift_data in payload.shifts:
+        # Each shift_data should have: date, shiftType, startTime, endTime, notes (optional)
+        # We'll use the ShiftIn model for validation, but we don't have memberId in the shift data.
+        # We'll create a temporary ShiftIn with memberId from payload.
+        try:
+            shift_in = ShiftIn(
+                memberId=payload.memberId,
+                date=shift_data["date"],
+                shiftType=shift_data["shiftType"],
+                startTime=shift_data.get("startTime"),
+                endTime=shift_data.get("endTime"),
+                notes=shift_data.get("notes"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {exc}")
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid shift data: {exc}")
+
+        # Validate the shift type
+        if shift_in.shiftType not in VALID_SHIFT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Invalid shift type: {shift_in.shiftType}")
+
+        # Parse the date
+        try:
+            shift_date = _parse_date(shift_in.date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid date format: {shift_in.date}")
+
+        # Check if we already have a shift for this member and date
+        existing_shift = (
+            db.query(DoctorShift)
+            .filter(DoctorShift.member_id == payload.memberId, DoctorShift.date == shift_date)
+            .first()
+        )
+
+        if payload.replaceDates and existing_shift:
+            # We'll update the existing shift
+            # We'll collect the update data
+            shifts_to_upsert.append(("update", existing_shift.id, shift_in))
+        else:
+            # We'll create a new shift
+            shifts_to_upsert.append(("create", None, shift_in))
+
+    # Now we perform the operations in a transaction
+    try:
+        for op, shift_id, shift_in in shifts_to_upsert:
+            if op == "create":
+                row = DoctorShift(member_id=shift_in.memberId, date=_parse_date(shift_in.date))
+                _apply_shift_defaults(row, shift_in.model_dump())
+                db.add(row)
+            else:  # update
+                row = db.get(DoctorShift, shift_id)
+                if not row:
+                    # This should not happen because we checked existence, but just in case
+                    continue
+                data = shift_in.model_dump(exclude_unset=False)
+                data["shiftType"] = shift_in.shiftType
+                _apply_shift_defaults(row, data)
+                row.date = _parse_date(shift_in.date)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create shifts: {exc}")
+
+    # Return the number of shifts created/updated
+    created = sum(1 for op, _, _ in shifts_to_upsert if op == "create")
+    updated = sum(1 for op, _, _ in shifts_to_upsert if op == "update")
+    return {"created": created, "updated": updated}
 
 
 # ---------------------------------------------------------------------------

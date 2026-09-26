@@ -16,3 +16,4 @@ __pycache__/
 *.before-events-backup
 *.before-real-events
 family-calendar-local-changes.patch
+.neon

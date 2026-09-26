@@ -22,8 +22,14 @@ class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response;
   try {
+    const headers = options.headers as Record<string, string> || {};
+    // If the body is a FormData, we don't set Content-Type (let the browser set it)
+    const isFormData = options.body instanceof FormData;
+    if (!isFormData && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
     res = await fetch(`${API_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers,
       ...options,
     });
   } catch {
@@ -107,5 +113,49 @@ export async function askAI(message: string): Promise<AiChatResult> {
   return request<AiChatResult>('/ai/chat', {
     method: 'POST',
     body: JSON.stringify({ message }),
+  });
+}
+
+export interface ShiftImportResult {
+  shifts: Array<{
+    day: number;
+    shift_type: string;
+    raw_code?: string | null;
+    confidence: number;
+    needs_review: boolean;
+  }>;
+  warnings?: string[];
+  detected_month?: number;
+  detected_year?: number;
+}
+
+export async function importShiftsPhoto(file: File, month: number, year: number): Promise<ShiftImportResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('month', month.toString());
+  formData.append('year', year.toString());
+
+  return request<ShiftImportResult>('/shifts/import-photo', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export interface BulkShiftInput {
+  memberId?: number;
+  replaceDates?: boolean;
+  shifts: Array<{
+    date: string;
+    shiftType: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    notes?: string | null;
+  }>;
+}
+
+export async function bulkCreateShifts(payload: BulkShiftInput): Promise<{ created: number; updated: number }> {
+  return request<{ created: number; updated: number }>('/shifts/bulk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
